@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name        Battle Stats Predictor
 // @description Show battle stats prediction, computed by a third party service
-// @version     9.3.2
+// @version     9.3.3
 // @namespace   tdup.battleStatsPredictor
-// @updateURL   https://github.com/tdup-torn/userscripts/raw/master/battle_stats_predictor.user.js
-// @downloadURL https://github.com/tdup-torn/userscripts/raw/master/battle_stats_predictor.user.js
+// @updateURL   https://github.com/Kwack-Kwack/bsp/raw/master/battle_stats_predictor.user.js
+// @downloadURL https://github.com/Kwack-Kwack/bsp/raw/master/battle_stats_predictor.user.js
 // @match       https://www.torn.com/profiles.php*
 // @match       https://www.torn.com/bringafriend.php*
 // @match       https://www.torn.com/halloffame.php*
@@ -108,6 +108,8 @@ const StorageKey = {
     // Cache management
     AutoClearOutdatedCacheLastDate: 'tdup.battleStatsPredictor.AutoClearOutdatedCacheLastDate',
     TestLocalStorageKey: 'tdup.battleStatsPredictor.TestLocalStorage',
+
+	KwackDevInternalSpiesTSKey: "kw.battleStatsPredictor.KwDevInternalSpiesTSKey",
 };
 
 function GetBSPServer() {
@@ -529,7 +531,7 @@ function GetTornStatsSpyFromCache(playerId) {
 
     return spy;
 }
-function SetTornStatsSpyInCache(playerId, spy) {
+function SetTornStatsSpyInCache(playerId, spy, timestamp) {
     if (spy == undefined) {
         return eSetSpyInCacheResult.Error;
     }
@@ -540,12 +542,13 @@ function SetTornStatsSpyInCache(playerId, spy) {
     }
 
     let objectSpy = new Object();
-    objectSpy.timestamp = spy.timestamp;
+    objectSpy.timestamp = timestamp;
     objectSpy.str = spy.strength;
     objectSpy.spd = spy.speed;
     objectSpy.def = spy.defense;
     objectSpy.dex = spy.dexterity;
     objectSpy.total = spy.total;
+	objectSpy.type = spy.type;
 
     var key = StorageKey.TornStatsSpy + playerId;
 
@@ -1009,6 +1012,7 @@ function OnProfilePlayerStatsRetrieved(playerId, prediction) {
     FFPredicted2 = FFPredicted2.toFixed(2);
 
     let imgType = mainBSPIcon;
+	let textToReplaceImage = null;
     let extraIndicator = "";
 
     if (prediction.PredictionDate != undefined) {
@@ -1024,6 +1028,10 @@ function OnProfilePlayerStatsRetrieved(playerId, prediction) {
         prediction.PredictionDate = new Date(prediction.timestamp * 1000);
         if (prediction.Source == "TornStats") {
             imgType = tornstatsIcon;
+			if (typeof prediction.type === 'string' && prediction.type.startsWith("faction-spy-")) {
+				// internal spy
+				textToReplaceImage = `kw-${prediction.type.replace("faction-spy-", "")}`;
+			}
         }
         else if (prediction.Source == "YATA") {
             imgType = yataIcon;
@@ -1081,6 +1089,11 @@ function OnProfilePlayerStatsRetrieved(playerId, prediction) {
     let isShowingBScore = GetStorageBool(StorageKey.IsShowingBattleStatsScore);
     let statsDivContent = extraIndicator;
 
+	const imageCell = textToReplaceImage
+		? `<td style="vertical-align: middle;border: 1px solid gray;text-align:center;background-color:#344556; color: white; font-size: 1.2rem; padding: 1rem 0.5rem;">${textToReplaceImage}</td>`
+		: '<td style="vertical-align: middle;border: 1px solid gray;text-align:center;background-color:#344556;"> <img src="' + imgType + '" style="max-width: 100px;max-height:30px"/> </td>';
+
+
     statsDivContent += '<table style=width:100%;font-family:initial>';
     if (GetStorageBoolWithDefaultValue(StorageKey.IsShowingStatsHeader, true)) {
         statsDivContent += '<tr style="font-size:small;color:white;background-color:#344556" >';
@@ -1096,8 +1109,8 @@ function OnProfilePlayerStatsRetrieved(playerId, prediction) {
     statsDivContent += '<td style="vertical-align: middle;font-weight: 600;text-align:center;border: 1px solid gray;">' + FormatBattleStats(isShowingBScore ? consolidatedData.Score : consolidatedData.TargetTBS) + '</td>';
     statsDivContent += '<td style="vertical-align: middle;font-weight: 600;text-align:center;border: 1px solid gray;">' + parseInt(isShowingBScore ? ScoreRatio : tbsRatio) + '%</td>' +
         '<td style="vertical-align: middle;font-weight: 600;text-align:center;border: 1px solid gray;">' + FFPredicted2 + ' </td>' +
-        '<td style="vertical-align: middle;border: 1px solid gray;text-align:center;background-color:#344556;"> <img src="' + imgType + '" style="max-width: 100px;max-height:30px"/> </td>' +
-        '<td style="vertical-align: middle;text-align:center;border: 1px solid gray;font-size: medium;background-color:#344556;color:white;">' + relativeTime + ' </td>' +
+		imageCell +
+		'<td style="vertical-align: middle;text-align:center;border: 1px solid gray;font-size: medium;background-color:#344556;color:white;">' + relativeTime + ' </td>' +
         '</tr>' +
         '</table> ';
 
@@ -3588,18 +3601,18 @@ function AutoSyncTornStatsPlayer(playerId) {
 
     pageViewOnce = true;
 
-    if (GetStorageBoolWithDefaultValue(StorageKey.IsAutoImportTornStatsSpies) == false)
-        return;
+    // if (GetStorageBoolWithDefaultValue(StorageKey.IsAutoImportTornStatsSpies) == false)
+    //     return;
 
     let lastDateAutoSyncThisFaction = GetStorage(StorageKey.AutoImportLastDatePlayer + playerId);
-    if (lastDateAutoSyncThisFaction != undefined) {
-        let dateConsideredTooOld = new Date();
-        dateConsideredTooOld.setDate(dateConsideredTooOld.getDate() - 1);
-        if (new Date(lastDateAutoSyncThisFaction) > dateConsideredTooOld) {
-            LogInfo("AutoSyncTornStatsPlayer  - " + playerId + " - Too recent call in database, skipying");
-            return;
-        }
-    }
+    // if (lastDateAutoSyncThisFaction != undefined) {
+    //     let dateConsideredTooOld = new Date();
+    //     dateConsideredTooOld.setDate(dateConsideredTooOld.getDate() - 1);
+    //     if (new Date(lastDateAutoSyncThisFaction) > dateConsideredTooOld) {
+    //         LogInfo("AutoSyncTornStatsPlayer  - " + playerId + " - Too recent call in database, skipying");
+    //         return;
+    //     }
+    // }
 
     SetStorage(StorageKey.AutoImportLastDatePlayer + playerId, new Date());
     LogInfo("AutoSyncTornStatsPlayer  - " + playerId + " - Getting spies from player..");
@@ -3608,7 +3621,7 @@ function AutoSyncTornStatsPlayer(playerId) {
 
 function FetchPlayerSpiesFromTornStats(playerId) {
 
-    let urlToCall = "https://www.tornstats.com/api/v2/" + GetStorage(StorageKey.TornStatsAPIKey) + "/spy/user/" + playerId;
+    let urlToCall = "https://kwack.dev/spies-internal/" + GetStorage(StorageKey.KwackDevInternalSpiesTSKey) + "/user/" + playerId;
 
     return new Promise((resolve, reject) => {
         GM.xmlHttpRequest({
@@ -3631,7 +3644,7 @@ function FetchPlayerSpiesFromTornStats(playerId) {
                     }
 
                     LogInfo("Spy retrieved from TornStats for player " + playerId);
-                    let setSpyInCacheResult = SetTornStatsSpyInCache(playerId, results.spy);
+                    let setSpyInCacheResult = SetTornStatsSpyInCache(playerId, results.spy, results.timestamp);
                     OnProfilePlayerStatsRetrieved(playerId, GetTornStatsSpyFromCache(playerId));
 
                 } catch (err) {
